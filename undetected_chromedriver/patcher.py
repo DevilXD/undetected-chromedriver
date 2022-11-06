@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
-# this module is part of undetected_chromedriver
+from __future__ import annotations
 
 import io
-import logging
 import os
-import random
 import re
-import string
 import sys
 import time
+import string
+import random
+import logging
+import secrets
 import zipfile
 from distutils.version import LooseVersion
 from urllib.request import urlopen, urlretrieve
-import secrets
 
 
 logger = logging.getLogger(__name__)
-
 IS_POSIX = sys.platform.startswith(("darwin", "cygwin", "linux"))
 
 
@@ -46,29 +45,29 @@ class Patcher(object):
         d = "~/.undetected_chromedriver"
     data_path = os.path.abspath(os.path.expanduser(d))
 
-    def __init__(self, executable_path=None, force=False, version_main: int = 0):
+    def __init__(
+        self, executable_path: str | None = None, force: bool = False, version_main: int = 0
+    ):
         """
-
         Args:
             executable_path: None = automatic
-                             a full file path to the chromedriver executable
+                A full file path to the chromedriver executable.
             force: False
-                    terminate processes which are holding lock
+                Terminate processes which are holding lock.
             version_main: 0 = auto
-                specify main chrome version (rounded, ex: 82)
+                Specify main chrome version (integer, ex: 82).
         """
 
         self.force = force
-        self.executable_path = None
+        self.executable_path: str
+        self.version_full: LooseVersion
         prefix = secrets.token_hex(8)
 
         if not os.path.exists(self.data_path):
             os.makedirs(self.data_path, exist_ok=True)
 
         if not executable_path:
-            self.executable_path = os.path.join(
-                self.data_path, "_".join([prefix, self.exe_name])
-            )
+            self.executable_path = os.path.join(self.data_path, "_".join([prefix, self.exe_name]))
 
         if not IS_POSIX:
             if executable_path:
@@ -78,9 +77,7 @@ class Patcher(object):
         self.zip_path = os.path.join(self.data_path, prefix)
 
         if not executable_path:
-            self.executable_path = os.path.abspath(
-                os.path.join(".", self.executable_path)
-            )
+            self.executable_path = os.path.abspath(os.path.join(".", self.executable_path))
 
         self._custom_exe_path = False
 
@@ -88,24 +85,27 @@ class Patcher(object):
             self._custom_exe_path = True
             self.executable_path = executable_path
         self.version_main = version_main
-        self.version_full = None
 
-    def auto(self, executable_path=None, force=False, version_main=None):
-        """"""
+    def auto(
+        self,
+        executable_path: str | None = None,
+        force: bool = False,
+        version_main: int | None = None,
+    ) -> bool:
         if executable_path:
             self.executable_path = executable_path
             self._custom_exe_path = True
 
         if self._custom_exe_path:
             ispatched = self.is_binary_patched(self.executable_path)
-            if not ispatched:
-                return self.patch_exe()
-            else:
-                return
+            if ispatched:
+                return True
+            return self.patch_exe()
 
-        if version_main:
+        # download and patch it
+        if version_main is not None:
             self.version_main = version_main
-        if force is True:
+        if force:
             self.force = force
 
         try:
@@ -125,7 +125,7 @@ class Patcher(object):
             pass
 
         release = self.fetch_release_number()
-        self.version_main = release.version[0]
+        self.version_main = int(release.version[0])
         self.version_full = release
         self.unzip_package(self.fetch_package())
         return self.patch()
@@ -134,9 +134,10 @@ class Patcher(object):
         self.patch_exe()
         return self.is_binary_patched()
 
-    def fetch_release_number(self):
+    def fetch_release_number(self) -> LooseVersion:
         """
-        Gets the latest major version available, or the latest major version of self.target_version if set explicitly.
+        Gets the latest major version available,
+        or the latest major version of self.target_version if set explicitly.
         :return: version string
         :rtype: LooseVersion
         """
@@ -151,12 +152,12 @@ class Patcher(object):
         with io.open(self.executable_path, "rb") as f:
             for line in iter(lambda: f.readline(), b""):
                 match = re.search(rb"platform_handle\x00content\x00([0-9.]*)", line)
-                if match:
+                if match is not None:
                     return LooseVersion(match[1].decode())
 
-    def fetch_package(self):
+    def fetch_package(self) -> str:
         """
-        Downloads ChromeDriver from source
+        Downloads ChromeDriver from source.
 
         :return: path to downloaded file
         """
@@ -165,32 +166,31 @@ class Patcher(object):
         # return urlretrieve(u, filename=self.data_path)[0]
         return urlretrieve(u)[0]
 
-    def unzip_package(self, fp):
+    def unzip_package(self, filepath: str) -> str:
         """
         Does what it says
 
         :return: path to unpacked executable
         """
-        logger.debug("unzipping %s" % fp)
+        logger.debug("unzipping %s" % filepath)
         try:
             os.unlink(self.zip_path)
         except (FileNotFoundError, OSError):
             pass
-
         os.makedirs(self.zip_path, mode=0o755, exist_ok=True)
-        with zipfile.ZipFile(fp, mode="r") as zf:
+        with zipfile.ZipFile(filepath, mode="r") as zf:
             zf.extract(self.exe_name, self.zip_path)
         os.rename(os.path.join(self.zip_path, self.exe_name), self.executable_path)
-        os.remove(fp)
+        os.remove(filepath)
         os.rmdir(self.zip_path)
         os.chmod(self.executable_path, 0o755)
         return self.executable_path
 
     @staticmethod
-    def force_kill_instances(exe_name):
+    def force_kill_instances(exe_name: str) -> bool:
         """
-        kills running instances.
-        :param: executable name to kill, may be a path as well
+        Kills running instances.
+        :param: Executable name to kill, may be a path as well.
 
         :return: True on success else False
         """
@@ -202,15 +202,16 @@ class Patcher(object):
         return not r
 
     @staticmethod
-    def gen_random_cdc():
+    def gen_random_cdc() -> bytes:
         cdc = random.choices(string.ascii_lowercase, k=26)
         cdc[-6:-4] = map(str.upper, cdc[-6:-4])
         cdc[2] = cdc[0]
         cdc[3] = "_"
         return "".join(cdc).encode()
 
-    def is_binary_patched(self, executable_path=None):
-        """simple check if executable is patched.
+    def is_binary_patched(self, executable_path: str | None = None) -> bool:
+        """
+        Simple check if executable is patched.
 
         :return: False if not patched, else True
         """
@@ -219,14 +220,13 @@ class Patcher(object):
             for line in iter(lambda: fh.readline(), b""):
                 if b"cdc_" in line:
                     return False
-            else:
-                return True
+        return True
 
-    def patch_exe(self):
+    def patch_exe(self) -> bool:
         """
-        Patches the ChromeDriver binary
+        Patches the ChromeDriver binary.
 
-        :return: False on failure, binary name on success
+        :return: False on failure, binary name on success.
         """
         logger.info("patching driver executable %s" % self.executable_path)
 
@@ -239,16 +239,12 @@ class Patcher(object):
                     newline = re.sub(b"cdc_.{22}", replacement, line)
                     fh.write(newline)
                     linect += 1
-            return linect
+        return bool(linect)
 
-    def __repr__(self):
-        return "{0:s}({1:s})".format(
-            self.__class__.__name__,
-            self.executable_path,
-        )
+    def __repr__(self) -> str:
+        return "{0:s}({1:s})".format(self.__class__.__name__, self.executable_path)
 
-    def __del__(self):
-
+    def __del__(self) -> None:
         if self._custom_exe_path:
             # if the driver binary is specified by user
             # we assume it is important enough to not delete it
