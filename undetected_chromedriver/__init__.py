@@ -40,7 +40,6 @@ logger.setLevel(logging.getLogger().getEffectiveLevel())
 
 class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
     """
-
     Controls the ChromeDriver and allows you to drive the browser.
 
     The webdriver file will be downloaded by this module automatically,
@@ -53,25 +52,21 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
     -------
 
     reconnect()
-
-        this can be useful in case of heavy detection methods
-        -stops the chromedriver service which runs in the background
-        -starts the chromedriver service which runs in the background
-        -recreate session
+        This can be useful in case of heavy detection methods:
+        - Stops the chromedriver service which runs in the background
+        - Starts the chromedriver service which runs in the background
+        - Recreates session
 
 
     start_session(capabilities=None, browser_profile=None)
-
-        differentiates from the regular method in that it does not
-        require a capabilities argument. The capabilities are automatically
-        recreated from the options at creation time.
+        Differentiates from the regular method in that it does not require a capabilities argument.
+        The capabilities are automatically recreated from the options at creation time.
 
     --------------------------------------------------------------------------
-        NOTE:
-            Chrome has everything included to work out of the box.
-            it does not `need` customizations.
-            any customizations MAY lead to trigger bot migitation systems.
-
+    NOTE:
+        Chrome has everything included to work out of the box.
+        It does not `need` customizations.
+        Any customizations MAY lead to trigger bot migitation systems.
     --------------------------------------------------------------------------
     """
 
@@ -104,8 +99,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         **kw,
     ):
         """
-        Creates a new instance of the chrome driver.
-
         Starts the service and then creates new instance of chrome driver.
 
         Parameters
