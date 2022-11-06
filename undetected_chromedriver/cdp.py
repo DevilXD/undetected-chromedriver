@@ -3,10 +3,13 @@
 
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
 
 import requests
 import websockets
+
+if TYPE_CHECKING:
+    from __init__ import ChromeOptions
 
 log = logging.getLogger(__name__)
 

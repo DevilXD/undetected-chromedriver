@@ -1,43 +1,21 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import subprocess
-
-"""
-
-         888                                                  888         d8b
-         888                                                  888         Y8P
-         888                                                  888
- .d8888b 88888b.  888d888 .d88b.  88888b.d88b.   .d88b.   .d88888 888d888 888 888  888  .d88b.  888d888
-d88P"    888 "88b 888P"  d88""88b 888 "888 "88b d8P  Y8b d88" 888 888P"   888 888  888 d8P  Y8b 888P"
-888      888  888 888    888  888 888  888  888 88888888 888  888 888     888 Y88  88P 88888888 888
-Y88b.    888  888 888    Y88..88P 888  888  888 Y8b.     Y88b 888 888     888  Y8bd8P  Y8b.     888
- "Y8888P 888  888 888     "Y88P"  888  888  888  "Y8888   "Y88888 888     888   Y88P    "Y8888  888   88888888
-
-by UltrafunkAmsterdam (https://github.com/ultrafunkamsterdam)
-
-"""
-
-
-__version__ = "3.1.5r5"
-
-
-import inspect
-import json
-import logging
 import os
 import re
-import shutil
 import sys
-import tempfile
-import threading
+import json
 import time
+import shutil
+import logging
+import tempfile
+import subprocess
+from typing import cast
 
 import selenium.webdriver.chrome.service
 import selenium.webdriver.chrome.webdriver
 import selenium.webdriver.common.service
-import selenium.webdriver.remote.webdriver
-from selenium.webdriver.chrome.service import Service
+import selenium.webdriver.remote.command
 
 from .cdp import CDP
 from .dprocess import start_detached
@@ -45,6 +23,8 @@ from .options import ChromeOptions
 from .patcher import IS_POSIX, Patcher
 from .reactor import Reactor
 
+
+__version__ = "3.1.6"
 __all__ = (
     "Chrome",
     "ChromeOptions",
@@ -95,7 +75,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
     --------------------------------------------------------------------------
     """
 
-    _instances = set()
+    _instances: set[Chrome] = set()
     session_id = None
     debug = False
 
@@ -120,6 +100,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         suppress_welcome=True,
         use_subprocess=False,
         debug=False,
+        no_sandbox=True,
         **kw,
     ):
         """
@@ -131,13 +112,13 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         ----------
 
         options: ChromeOptions, optional, default: None - automatic useful defaults
-            this takes an instance of ChromeOptions, mainly to customize browser behavior.
-            anything other dan the default, for example extensions or startup options
+            This takes an instance of ChromeOptions, mainly to customize browser behavior.
+            Anything other than the default, for example extensions or startup options,
             are not supported in case of failure, and can probably lowers your undetectability.
 
 
         user_data_dir: str , optional, default: None (creates temp profile)
-            if user_data_dir is a path to a valid chrome profile directory, use it,
+            If user_data_dir is a path to a valid chrome profile directory, use it,
             and turn off automatic removal mechanism at exit.
 
         driver_executable_path: str, optional, default: None(=downloads and patches new binary)
@@ -147,83 +128,100 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             If not specified, make sure the executable's folder is in $PATH
 
         port: int, optional, default: 0
-            port you would like the service to run, if left as 0, a free port will be found.
+            Port you would like the service to run, if left as 0, a free port will be found.
 
         enable_cdp_events: bool, default: False
             :: currently for chrome only
-            this enables the handling of wire messages
-            when enabled, you can subscribe to CDP events by using:
+            This enables the handling of wire messages when enabled,
+            you can subscribe to CDP events by using:
 
-                driver.add_cdp_listener("Network.dataReceived", yourcallback)
-                # yourcallback is an callable which accepts exactly 1 dict as parameter
-
+            ```
+            driver.add_cdp_listener("Network.dataReceived", yourcallback)
+            # yourcallback is an callable which accepts exactly 1 dict as parameter
+            ```
 
         service_args: list of str, optional, default: None
-            arguments to pass to the driver service
+            Arguments to pass to the driver service.
 
         desired_capabilities: dict, optional, default: None - auto from config
-            Dictionary object with non-browser specific capabilities only, such as "item" or "loggingPref".
+            Dictionary object with non-browser specific capabilities only,
+            such as "item" or "loggingPref".
 
         advanced_elements:  bool, optional, default: False
-            makes it easier to recognize elements like you know them from html/browser inspection, especially when working
-            in an interactive environment
+            Makes it easier to recognize elements like you know them from html/browser inspection,
+            especially when working in an interactive environment.
 
-            default webelement repr:
-            <selenium.webdriver.remote.webelement.WebElement (session="85ff0f671512fa535630e71ee951b1f2", element="6357cb55-92c3-4c0f-9416-b174f9c1b8c4")>
+            Default webelement repr:
+            <selenium.webdriver.remote.webelement.WebElement
+            (session="85ff0f671512fa535630e71ee951b1f2",
+            element="6357cb55-92c3-4c0f-9416-b174f9c1b8c4")>
 
-            advanced webelement repr
-            <WebElement(<a class="mobile-show-inline-block mc-update-infos init-ok" href="#" id="main-cat-switcher-mobile">)>
+            Advanced webelement repr
+            <WebElement(<a class="mobile-show-inline-block mc-update-infos init-ok"
+            href="#" id="main-cat-switcher-mobile">)>
 
-            note: when retrieving large amounts of elements ( example: find_elements_by_tag("*") ) and print them, it does take a little more time.
-
+            Note: when retrieving large amounts of elements (example: find_elements_by_tag("*"))
+            and printing them, it does take a little more time.
 
         service_log_path: str, optional, default: None
-             path to log information from the driver.
+            Path to log information from the driver.
 
         keep_alive: bool, optional, default: True
-             Whether to configure ChromeRemoteConnection to use HTTP keep-alive.
+            Whether to configure ChromeRemoteConnection to use HTTP keep-alive.
 
         log_level: int, optional, default: adapts to python global log level
 
         headless: bool, optional, default: False
-            can also be specified in the options instance.
+            Can also be specified in the options instance.
             Specify whether you want to use the browser in headless mode.
-            warning: this lowers undetectability and not fully supported.
+            Warning: this lowers undetectability and not fully supported.
 
         version_main: int, optional, default: None (=auto)
-            if you, for god knows whatever reason, use
-            an older version of Chrome. You can specify it's full rounded version number
-            here. Example: 87 for all versions of 87
+            If you, for god knows whatever reason, use an older version of Chrome,
+            you can specify it's full rounded version number here.
+            Example: 87 for all versions of 87.
 
         patcher_force_close: bool, optional, default: False
-            instructs the patcher to do whatever it can to access the chromedriver binary
-            if the file is locked, it will force shutdown all instances.
-            setting it is not recommended, unless you know the implications and think
+            Instructs the patcher to do whatever it can to access the chromedriver binary.
+            If the file is locked, it will force shutdown all instances.
+            Setting it is not recommended, unless you know the implications and think
             you might need it.
 
         suppress_welcome: bool, optional , default: True
-            a "welcome" alert might show up on *nix-like systems asking whether you want to set
+            A "welcome" alert might show up on *nix-like systems asking whether you want to set
             chrome as your default browser, and if you want to send even more data to google.
-            now, in case you are nag-fetishist, or a diagnostics data feeder to google, you can set this to False.
-            Note: if you don't handle the nag screen in time, the browser loses it's connection and throws an Exception.
+            Now, in case you are nag-fetishist, or a diagnostics data feeder to google,
+            you can set this to False.
+            Note: if you don't handle the nag screen in time, the browser loses it's connection
+            and throws an Exception.
 
-        use_subprocess: bool, optional , default: False,
+        use_subprocess: bool, optional , default: False
+            False (the default) makes sure Chrome will get it's own process
+            (so no subprocess of chromedriver.exe or python)
+                Setting this to True fixes a LOT of issues, like multithreaded run,
+                but most importantly, shutting corectly after program exits or using .quit().
+                You should be knowing what you're doing, and know how python works.
 
-            False (the default) makes sure Chrome will get it's own process (so no subprocess of chromedriver.exe or python
-                This fixes a LOT of issues, like multithreaded run, but mst importantly. shutting corectly after
-                program exits or using .quit()
+            Unfortunately, there is always an edge case in which one would like to write
+            a single script with the only contents being:
 
-              unfortunately, there  is always an edge case in which one would like to write an single script with the only contents being:
-              --start script--
-              import undetected_chromedriver as uc
-              d = uc.Chrome()
-              d.get('https://somesite/')
-              ---end script --
+            ```
+            import undetected_chromedriver as uc
+            d = uc.Chrome()
+            d.get('https://somesite/')
+            ```
 
-              and will be greeted with an error, since the program exists before chrome has a change to launch.
-              in that case you can set this to `True`. The browser will start via subprocess, and will keep running most of times.
-              ! setting it to True comes with NO support when being detected. !
+            ..., and will be greeted with an error, since the program exists
+            before chrome has a change to launch.
+            In that case you can set this to `True`.
+            The browser will start via subprocess, and will keep running most of times.
+            ! Setting it to True comes with NO support when being detected. !
 
+        no_sandbox: bool, optional, default=True
+            Uses the --no-sandbox option, and additionally does suppress
+            the "unsecure option" status bar.
+            This option has a default of True since many people seem to run this as root (...),
+            and chrome does not start when running as root without using --no-sandbox flag.
         """
         self.debug = debug
         patcher = Patcher(
@@ -249,9 +247,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         if not options.debugger_address:
             debug_port = (
-                port
-                if port != 0
-                else selenium.webdriver.common.service.utils.free_port()
+                port if port != 0 else selenium.webdriver.common.service.utils.free_port()
             )
             debug_host = "127.0.0.1"
             options.debugger_address = "%s:%d" % (debug_host, debug_port)
@@ -274,17 +270,17 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         # see if a custom user profile is specified in options
         for arg in options.arguments:
-
             if "lang" in arg:
                 m = re.search("(?:--)?lang(?:[ =])?(.*)", arg)
+                assert m is not None
                 try:
                     language = m[1]
                 except IndexError:
                     logger.debug("will set the language to en-US,en;q=0.9")
                     language = "en-US,en;q=0.9"
-
             if "user-data-dir" in arg:
                 m = re.search("(?:--)?user-data-dir(?:[ =])?(.*)", arg)
+                assert m is not None
                 try:
                     user_data_dir = m[1]
                     logger.debug(
@@ -294,12 +290,10 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
                 except IndexError:
                     logger.debug(
-                        "no user data dir could be extracted from supplied argument %s "
-                        % arg
+                        "no user data dir could be extracted from supplied argument %s " % arg
                     )
 
         if not user_data_dir:
-
             # backward compatiblity
             # check if an old uc.ChromeOptions is used, and extract the user data dir
 
@@ -310,21 +304,22 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
                 warnings.warn(
                     "using ChromeOptions.user_data_dir might stop working in future versions."
-                    "use uc.Chrome(user_data_dir='/xyz/some/data') in case you need existing profile folder"
+                    "use uc.Chrome(user_data_dir='/xyz/some/data') in case you need "
+                    "an existing profile folder."
                 )
                 options.add_argument("--user-data-dir=%s" % options.user_data_dir)
                 keep_user_data_dir = True
                 logger.debug(
                     "user_data_dir property found in options object: %s" % user_data_dir
                 )
-
             else:
                 user_data_dir = os.path.normpath(tempfile.mkdtemp())
                 keep_user_data_dir = False
                 arg = "--user-data-dir=%s" % user_data_dir
                 options.add_argument(arg)
                 logger.debug(
-                    "created a temporary folder in which the user-data (profile) will be stored during this\n"
+                    "created a temporary folder in which the user-data (profile) "
+                    "will be stored during this\n"
                     "session, and added it to chrome startup arguments: %s" % arg
                 )
 
@@ -332,7 +327,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             try:
                 import locale
 
-                language = locale.getdefaultlocale()[0].replace("_", "-")
+                language = locale.getdefaultlocale()[0].replace("_", "-")  # type: ignore
             except Exception:
                 pass
             if not language:
@@ -341,9 +336,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         options.add_argument("--lang=%s" % language)
 
         if not options.binary_location:
-            options.binary_location = (
-                browser_executable_path or find_chrome_executable()
-            )
+            options.binary_location = (browser_executable_path or find_chrome_executable())
 
         self._delay = 3
 
@@ -352,6 +345,8 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         if suppress_welcome:
             options.arguments.extend(["--no-default-browser-check", "--no-first-run"])
+        if no_sandbox:
+            options.arguments.extend(["--no-sandbox", "--test-type"])
         if headless or options.headless:
             options.headless = True
             options.add_argument("--window-size=1920,1080")
@@ -361,8 +356,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             # on linux using privileged user like root (which i don't recommend)
 
         options.add_argument(
-            "--log-level=%d" % log_level
-            or divmod(logging.getLogger().getEffectiveLevel(), 10)[0]
+            "--log-level=%d" % log_level or divmod(logging.getLogger().getEffectiveLevel(), 10)[0]
         )
 
         if hasattr(options, "handle_prefs"):
@@ -383,7 +377,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                 json.dump(config, fs)
                 fs.truncate()  # the file might be shorter
                 logger.debug("fixed exit_type flag")
-        except Exception as e:
+        except Exception:
             logger.debug("did not find a bad exit_type flag ")
 
         self.options = options
@@ -392,9 +386,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             desired_capabilities = options.to_capabilities()
 
         if not use_subprocess:
-            self.browser_pid = start_detached(
-                options.binary_location, *options.arguments
-            )
+            self.browser_pid = start_detached(options.binary_location, *options.arguments)
         else:
             browser = subprocess.Popen(
                 [options.binary_location, *options.arguments],
@@ -406,8 +398,8 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             self.browser_pid = browser.pid
 
         if service_creationflags:
-            service = Service(
-                patcher.executable_path, port, service_args, service_log_path
+            service = selenium.webdriver.chrome.service.Service(
+                cast(str, patcher.executable_path), port, service_args, service_log_path
             )
             service.creationflags = service_creationflags
         else:
@@ -421,16 +413,15 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
             desired_capabilities=desired_capabilities,
             service_log_path=service_log_path,
             keep_alive=keep_alive,
-            service=service,  # needed or the service will be re-created
+            # needed or the service will be re-created
+            service=service,  # type: ignore
         )
 
         self.reactor = None
 
         if enable_cdp_events:
             if logging.getLogger().getEffectiveLevel() == logging.DEBUG:
-                logging.getLogger(
-                    "selenium.webdriver.remote.remote_connection"
-                ).setLevel(20)
+                logging.getLogger("selenium.webdriver.remote.remote_connection").setLevel(20)
             reactor = Reactor(self)
             reactor.start()
             self.reactor = reactor
@@ -475,20 +466,20 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                     "Page.addScriptToEvaluateOnNewDocument",
                     {
                         "source": """
-
                             Object.defineProperty(window, 'navigator', {
                                 value: new Proxy(navigator, {
-                                        has: (target, key) => (key === 'webdriver' ? false : key in target),
-                                        get: (target, key) =>
-                                                key === 'webdriver' ?
-                                                false :
-                                                typeof target[key] === 'function' ?
-                                                target[key].bind(target) :
-                                                target[key]
-                                        })
+                                    has: (target, key) => (
+                                        key === 'webdriver' ? false : key in target
+                                    ),
+                                    get: (target, key) =>
+                                            key === 'webdriver' ?
+                                            false :
+                                            typeof target[key] === 'function' ?
+                                            target[key].bind(target) :
+                                            target[key]
+                                    })
                             });
-
-                    """
+                        """
                     },
                 )
 
@@ -508,7 +499,8 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                             Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 1});
                             Object.defineProperty(navigator.connection, 'rtt', {get: () => 100});
 
-                            // https://github.com/microlinkhq/browserless/blob/master/packages/goto/src/evasions/chrome-runtime.js
+                            // https://github.com/microlinkhq/browserless/blob/master/packages
+                            /goto/src/evasions/chrome-runtime.js
                             window.chrome = {
                                 app: {
                                     isInstalled: false,
@@ -566,7 +558,8 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                                 }
                             }
 
-                            // https://github.com/microlinkhq/browserless/blob/master/packages/goto/src/evasions/navigator-permissions.js
+                            // https://github.com/microlinkhq/browserless/blob/master/packages"
+                            "/goto/src/evasions/navigator-permissions.js
                             if (!window.Notification) {
                                 window.Notification = {
                                     permission: 'denied'
@@ -585,7 +578,9 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                             }
                             Function.prototype.call = call
 
-                            const nativeToStringFunctionString = Error.toString().replace(/Error/g, 'toString')
+                            const nativeToStringFunctionString = Error.toString().replace(
+                                /Error/g, 'toString'
+                            )
                             const oldToString = Function.prototype.toString
 
                             function functionToString() {
@@ -599,12 +594,12 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                             }
                             // eslint-disable-next-line
                             Function.prototype.toString = functionToString
-                            """
+                        """
                     },
                 )
             return orig_get(*args, **kwargs)
 
-        self.get = get_wrapped
+        self.get = get_wrapped  # type: ignore
 
     def __dir__(self):
         return object.__dir__(self)
@@ -628,7 +623,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
                 "source": """
                     let objectToInspect = window,
                         result = [];
-                    while(objectToInspect !== null) 
+                    while(objectToInspect !== null)
                     { result = result.concat(Object.getOwnPropertyNames(objectToInspect));
                       objectToInspect = Object.getPrototypeOf(objectToInspect); }
                     result.forEach(p => p.match(/.+_.+_(Array|Promise|Symbol)/ig)
@@ -656,18 +651,18 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         if self.reactor and isinstance(self.reactor, Reactor):
             self.reactor.handlers.clear()
 
+    def window_new(self):
+        self.execute(selenium.webdriver.remote.command.Command.NEW_WINDOW, {"type": "window"})
+
     def tab_new(self, url: str):
         """
-        this opens a url in a new tab.
-        apparently, that passes all tests directly!
+        This opens a url in a new tab.
+        Apparently, that passes all tests directly!
 
         Parameters
         ----------
-        url
-
-        Returns
-        -------
-
+        url: str
+            The URL to open.
         """
         if not hasattr(self, "cdp"):
             from .cdp import CDP
@@ -712,7 +707,6 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
         try:
             logger.debug("killing browser")
             os.kill(self.browser_pid, 15)
-
         except TimeoutError as e:
             logger.debug(e, exc_info=True)
         except Exception:  # noqa
@@ -741,7 +735,7 @@ class Chrome(selenium.webdriver.chrome.webdriver.WebDriver):
 
         # dereference patcher, so patcher can start cleaning up as well.
         # this must come last, otherwise it will throw 'in use' errors
-        self.patcher = None
+        self.patcher = None  # type: ignore
 
     def __del__(self):
         try:
@@ -775,7 +769,9 @@ def find_chrome_executable():
     """
     candidates = set()
     if IS_POSIX:
-        for item in os.environ.get("PATH").split(os.pathsep):
+        PATH = os.environ.get("PATH")
+        assert PATH is not None
+        for item in PATH.split(os.pathsep):
             for subitem in (
                 "google-chrome",
                 "chromium",
@@ -792,9 +788,12 @@ def find_chrome_executable():
                 ]
             )
     else:
-        for item in map(
-            os.environ.get, ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")
-        ):
+        items = []
+        for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            folder_path = os.environ.get(env_name)
+            assert folder_path is not None
+            items.append(folder_path)
+        for item in items:
             if item is not None:
                 for subitem in (
                     "Google/Chrome/Application",

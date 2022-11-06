@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 # this module is part of undetected_chromedriver
 
-import asyncio
 import json
+import asyncio
 import logging
 import threading
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from __init__ import Chrome
 
 logger = logging.getLogger(__name__)
 
